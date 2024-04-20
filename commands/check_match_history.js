@@ -1,65 +1,106 @@
-const { CommandType } = require("wokcommands");
+const puppeteer = require("puppeteer");
+const { CommandType, CooldownTypes } = require("wokcommands");
+const handleInteractionReply = require("../handleInteractionReply");
 
-const { keyAuth } = require("./../config.json");
-const {
-	handleInteractionError,
-	replyOrEditInteraction,
-} = require("../utils/interaction");
-const { verifyLicense } = require("../utils/keyAuth");
-const { sendNotifyEmbed } = require("../utils/embed");
+const url = "https://www.nba.com/players";
 
 module.exports = {
 	// Required for slash commands
-	description: "Grab role using your license key",
+	description: "Grab the last five matches of player from NBA website",
 
 	type: CommandType.SLASH,
+	cooldowns: {
+		type: CooldownTypes.global,
+		duration: "25 s",
+	},
 	options: [
 		{
-			name: "product",
-			description: "select the product you wanna get the role for",
-			type: 3,
-			required: true,
-			choices: Object.keys(keyAuth).map((key) => ({ name: key, value: key })),
-		},
-		{
-			name: "key",
-			description: "input your license key",
+			name: "player_name",
+			description:
+				"enter the player name (first / last name but correctly spelled)",
 			type: 3,
 			required: true,
 		},
 	],
 	// Invoked when a user runs the ping command
 	callback: async ({ interaction }) => {
+		let browser;
 		try {
-			const { options, member, client, user } = interaction;
+			const { options } = interaction;
 
-			await interaction.deferReply({ ephemeral: true });
+			await interaction.deferReply();
 
-			const productStr = options.getString("product");
-			const license = options.getString("key");
+			const playerName = options.getString("player_name");
 
-			const { APIKey, roleId } = keyAuth[productStr];
+			browser = await puppeteer.launch();
+			const page = await browser.newPage();
+			await page.setViewport({ width: 1200, height: 800 });
 
-			const status = await verifyLicense(APIKey, license);
+			await page.goto(url);
 
-			if (!status) throw new Error("License key not found ❌");
+			const tableBodySelector =
+				"#__next > div.Layout_base__6IeUC.Layout_justNav__2H4H0.Layout_withSubNav__ByKRF > div.Layout_mainContent__jXliI > main > div.MaxWidthContainer_mwc__ID5AG > section > div > div.PlayerList_content__kwT7z > div.PlayerList_playerTable__Jno0k > div > div > div > table > tbody";
 
-			await member.roles.add(roleId);
+			await page.waitForSelector(
+				"#__next > div.Layout_base__6IeUC.Layout_justNav__2H4H0.Layout_withSubNav__ByKRF > div.Layout_mainContent__jXliI > main > div.MaxWidthContainer_mwc__ID5AG > section",
+			);
 
-			await replyOrEditInteraction(interaction, {
-				content: `Success! added the role <@&${roleId}>`,
+			function wait(ms) {
+				return new Promise((resolve) => setTimeout(resolve, ms));
+			}
+
+			await page.type("input[type=text]", playerName);
+
+			await wait(1000 * 2);
+
+			const player = await page.$(
+				`${tableBodySelector} > tr:nth-child(1)> td.primary.text.RosterRow_primaryCol__1lto4`,
+			);
+
+			if (!player) throw new Error("No player found");
+
+			const hrefLink = await player.$eval("a", (element) => element.href);
+
+			if (!hrefLink) throw new Error("No player found");
+
+			await handleInteractionReply(
+				interaction,
+				`Found the player, YAY. Getting the games to you in a moment.`,
+			);
+
+			await page.goto(hrefLink);
+
+			console.log(hrefLink);
+
+			const lastGamesSelector =
+				"#__next > div.Layout_base__6IeUC.Layout_justNav__2H4H0 > div.Layout_mainContent__jXliI > section > div.MaxWidthContainer_mwc__ID5AG.PlayerView_pvSection__whddS > section:nth-child(2)";
+
+			await page.waitForSelector(lastGamesSelector);
+
+			const games = await page.$(lastGamesSelector);
+
+			const boundingBox = await games.boundingBox();
+
+			const encode = await page.screenshot({
+				optimizeForSpeed: true,
+				clip: {
+					x: boundingBox.x,
+					y: boundingBox.y,
+					width: boundingBox.width,
+					height: boundingBox.height,
+				},
+				encoding: "binary",
 			});
 
-			await sendNotifyEmbed({
-				title: "Role Given",
-				client,
-				user,
-				license,
-				tool: productStr,
-				role: `<@&${roleId}>`,
+			await handleInteractionReply(interaction, {
+				content: hrefLink,
+				files: [encode],
 			});
 		} catch (error) {
-			await handleInteractionError(error, interaction);
+			console.log(error);
+			await handleInteractionReply(interaction, error.message);
+		} finally {
+			browser && (await browser.close().catch((e) => console.log(e)));
 		}
 	},
 };
