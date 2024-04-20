@@ -1,4 +1,3 @@
-const puppeteer = require("puppeteer");
 const { CommandType, CooldownTypes } = require("wokcommands");
 const handleInteractionReply = require("../handleInteractionReply");
 
@@ -9,10 +8,10 @@ module.exports = {
 	description: "Grab the last five matches of player from NBA website",
 
 	type: CommandType.SLASH,
-	cooldowns: {
-		type: CooldownTypes.global,
-		duration: "25 s",
-	},
+	// cooldowns: {
+	// 	type: CooldownTypes.global,
+	// 	duration: "25 s",
+	// },
 	options: [
 		{
 			name: "player_name",
@@ -24,17 +23,23 @@ module.exports = {
 	],
 	// Invoked when a user runs the ping command
 	callback: async ({ interaction }) => {
-		let browser;
+		const {
+			options,
+			client: { browser },
+		} = interaction;
+
+		let page;
 		try {
-			const { options } = interaction;
+			// console.log(browser);
+			// console.log(browser.isConnected());
 
 			await interaction.deferReply();
 
 			const playerName = options.getString("player_name");
 
-			browser = await puppeteer.launch();
-			const page = await browser.newPage();
+			page = await browser.newPage();
 			await page.setViewport({ width: 1200, height: 800 });
+			await page.setDefaultNavigationTimeout(60000); // 60,000 milliseconds
 
 			await page.goto(url);
 
@@ -100,7 +105,7 @@ module.exports = {
 			console.log(error);
 			await handleInteractionReply(interaction, error.message);
 		} finally {
-			browser && (await browser.close().catch((e) => console.log(e)));
+			await page.close();
 		}
 	},
 };

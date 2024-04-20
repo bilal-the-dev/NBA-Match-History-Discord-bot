@@ -1,5 +1,6 @@
 const { Client, IntentsBitField, Partials } = require("discord.js");
 const WOK = require("wokcommands");
+const puppeteer = require("puppeteer");
 const dotenv = require("dotenv");
 const path = require("path");
 
@@ -20,7 +21,7 @@ const client = new Client({
 });
 
 client.on("ready", async (readyClient) => {
-	console.log(`${client.user.username} is running 🥗`);
+	console.log(`${readyClient.user.username} is running 🥗`);
 
 	const { DefaultCommands } = WOK;
 	new WOK({
@@ -45,4 +46,17 @@ client.on("ready", async (readyClient) => {
 	});
 });
 
+(async function () {
+	client.browser = await puppeteer.launch({ headless: false });
+})();
+
+process.on("exit", async (code) => {
+	console.log(`Node.js process exited with code ${code}`);
+
+	if (client.browser.isConnected()) {
+		console.log("the browser is closing");
+		await client.browser.close();
+		client.browser = null;
+	}
+});
 client.login(TOKEN);
